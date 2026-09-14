@@ -1,0 +1,19 @@
+# Configuracion del constructor de imagenes.
+#
+# Aqui hubo un bloque [dns] fijando los servidores de una red concreta (ESAN)
+# que entregaba 8 y solo respondian 3. Se retiro al cambiar de red: aquellos
+# servidores ya no existen y mantenerlos dejaba la construccion sin resolucion.
+#
+# El constructor se crea ademas con red del host, porque el propio contenedor
+# de buildkit tampoco resolvia en aquella red:
+#
+#   docker buildx create --name spark --driver docker-container \
+#     --driver-opt network=host --config buildkitd.toml --use
+#
+# Esa opcion se mantiene: es inofensiva en una red sana y evita una clase
+# entera de problemas de resolucion durante la construccion.
+#
+# Si vuelves a una red con DNS poco fiables, descomenta y ajusta:
+#
+# [dns]
+#   nameservers = ["<ip1>", "<ip2>"]

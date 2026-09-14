@@ -1,0 +1,100 @@
+# =============================================================================
+# REGISTRO PARA LA VERSION NUBE (perfil multilingual-assistant)
+#
+# Copia de examples_registry.yaml con un unico cambio: los servicios por defecto
+# del asistente multilingue apuntan a la nube de NVIDIA en lugar del DGX Spark.
+# docker-compose.override.yml lo monta sobre /app/examples_registry.yaml SOLO en
+# el contenedor de la nube, asi la version local sigue usando el original.
+#
+# Hace falta un fichero aparte porque con PLATFORM=cloud el catalogo local no se
+# carga, y un id local como qwen35-4b no existe en services.cloud.yaml: la app
+# fallaria al arrancar con "Default service ... was not found".
+# =============================================================================
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+
+# Single source of truth for what the UI selector exposes:
+#   all            → every registered example (selectable)
+#   <example>      → lock to one example (no switching)
+#
+# The first example listed (YAML insertion order) within the visible set
+# becomes the initial default selection.
+#
+# The ``EXAMPLE_SELECTION`` environment variable overrides this value at
+# runtime so the same YAML can drive multiple compose profiles.
+selection: all
+
+# Which transport(s) the UI exposes:
+#   all        → WebRTC and WebSocket
+#   webrtc     → WebRTC only
+#   websocket  → WebSocket only
+#
+# Override at runtime via the ``TRANSPORT_SELECTION`` environment variable.
+transports: all
+
+examples:
+  generic-assistant:
+    label: Generic Assistant
+    slots: [llm, asr, tts]
+    activity_check:
+      first_warning_s: 480
+      second_warning_s: 30
+      warning_completion_timeout_s: 45
+    defaults:
+      prompt: [generic_assistant]
+      llm: [nemotron-lightning]
+      asr: [nemotron-asr-streaming-english]
+      tts: [magpie-multilingual-tts]
+    bot: examples.generic.pipeline:bot
+
+  multilingual-assistant:
+    label: Multilingual Assistant
+    slots: [llm, asr, tts]
+    capabilities: [session_languages]
+    agent_prompt_keys:
+      - fixed_session_language_addon
+    defaults:
+      default_session_language: es-US
+      # skill_recepcion es el modo inicial; el robot cambia por voz con la
+      # herramienta cambiar_skill. Los otros skills viven en prompts.yaml.
+      prompt: [skill_recepcion]
+      # Version NUBE: todo por API de NVIDIA, nada corre en la GPU local.
+      # Los ids son claves de src/examples/multilingual/services.cloud.yaml.
+      # Super: con historial de varios turnos invoca cambiar_skill cuando toca;
+      # nano-omni (mas rapido) llego a decir "ahora estoy en modo educacion"
+      # sin invocarla. nano-omni queda de respaldo (LLM_MODELO_RESPALDO).
+      llm: [nemotron-super]
+      asr: [parakeet-rnnt]
+      tts: [magpie-multilingual-tts]
+    bot: examples.multilingual.pipeline:bot
+
+  omni-assistant:
+    label: Nemotron Omni Assistant
+    slots: [llm, tts]
+    defaults:
+      prompt: [generic_omni_assistant]
+      llm: [nemotron-omni-nvfp4]
+      tts: [magpie-multilingual-tts]
+    bot: examples.omni_assistant.pipeline:bot
+
+  omni-assistant-subagents:
+    label: Nemotron Omni Assistant Subagents
+    slots: [llm, tts]
+    capabilities: [attachments, webcam]
+    defaults:
+      prompt: [generic_omni_assistant]
+      llm: [nemotron-omni-nvfp4]
+      tts: [magpie-multilingual-tts]
+    bot: examples.omni_assistant_subagents.pipeline:bot
+
+  frontend-backend-agent:
+    label: Frontend Backend Agent
+    slots: [llm, thinker-llm, booking-server, asr, tts]
+    defaults:
+      prompt: [talker]
+      llm: [nemotron-lightning]
+      thinker-llm: [nemotron-lightning]
+      booking-server: [default]
+      asr: [nemotron-asr-streaming-english]
+      tts: [magpie-multilingual-tts]
+    bot: examples.frontend_backend_agent.pipeline:bot

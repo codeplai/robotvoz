@@ -1,7 +1,3 @@
-# Blueprint de NVIDIA con nuestros cambios: tiene su propio repositorio git
-# (rama robot-g1). Ver README.md, sección 3.
-nemotron-voice-agent/
-
 # Datos descargables (punkt_tab de NLTK, ver README 5.3)
 nltk_data/
 

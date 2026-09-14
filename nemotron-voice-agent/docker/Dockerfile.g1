@@ -1,0 +1,51 @@
+# Añade el SDK del humanoide Unitree G1 sobre la imagen del agente de voz.
+#
+# Por qué una imagen aparte y no tocar la del blueprint: así el blueprint se
+# puede actualizar sin arrastrar esto, y si la instalación del SDK falla, el
+# agente de voz sigue teniendo su imagen buena.
+#
+# Por qué --target y no el venv de la app: la app arranca con `uv run`, que
+# sincroniza /app/.venv desde uv.lock y BORRARÍA cualquier paquete añadido a
+# mano. Instalando en /opt/g1-python y exponiéndolo por PYTHONPATH, uv no lo
+# toca.
+FROM nemotron-voice-agent:latest
+
+USER root
+
+# --- 1. CycloneDDS (librería C) ----------------------------------------------
+# El SDK fija cyclonedds==0.10.2 en Python, que necesita la librería C de la
+# rama 0.10.x. No hay rueda precompilada para aarch64, así que se compila.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake git python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch releases/0.10.x \
+        https://github.com/eclipse-cyclonedds/cyclonedds.git /tmp/cyclonedds \
+    && cmake -S /tmp/cyclonedds -B /tmp/cyclonedds/build \
+        -DCMAKE_INSTALL_PREFIX=/opt/cyclonedds \
+        -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+    && cmake --build /tmp/cyclonedds/build --target install -j"$(nproc)" \
+    && rm -rf /tmp/cyclonedds
+
+ENV CYCLONEDDS_HOME=/opt/cyclonedds
+
+# --- 2. SDK de Unitree --------------------------------------------------------
+# opencv-python-headless en lugar de opencv-python: el SDK lo pide para los
+# ejemplos de vídeo del Go2, que no usamos, y la versión completa arrastra
+# todo el stack gráfico.
+# La imagen del blueprint no trae pip para el python del sistema, pero sí uv.
+# Se instala contra el intérprete del venv de la app para que las ruedas
+# compiladas coincidan con la versión de Python que ejecuta el servidor.
+RUN uv pip install --python /app/.venv/bin/python3 --no-cache \
+        --target /opt/g1-python \
+        "cyclonedds==0.10.2" numpy opencv-python-headless
+
+RUN git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git /tmp/unitree \
+    && uv pip install --python /app/.venv/bin/python3 --no-cache \
+        --target /opt/g1-python --no-deps /tmp/unitree \
+    && rm -rf /tmp/unitree
+
+ENV PYTHONPATH=/opt/g1-python
+ENV LD_LIBRARY_PATH=/opt/cyclonedds/lib
+
+WORKDIR /app

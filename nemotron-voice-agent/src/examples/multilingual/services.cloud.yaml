@@ -1,0 +1,84 @@
+# Cloud (NVCF) service catalog. On-prem entries live in services.local.yaml and
+# shadow these when their endpoint is reachable.
+
+# ── LLM Services (Cascaded pipeline) ──
+# "(Reasoning)" entries enable chain-of-thought via enable_thinking; the others
+# run reasoning-off for lowest latency.
+llm:
+  nemotron-lightning:
+    name: "Nemotron 3.5 Lightning 30B A3B"
+    model_id: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    supported_languages: [en, de, es, fr, it, ja]
+    system_prompt: ""
+    extra_params: '{"extra_body":{"chat_template_kwargs":{"enable_thinking":false},"repetition_penalty":1.05}}'
+
+  nemotron-lightning-reasoning:
+    name: "Nemotron 3.5 Lightning 30B A3B (Reasoning)"
+    model_id: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    supported_languages: [en, de, es, fr, it, ja]
+    system_prompt: ""
+    extra_params: '{"extra_body":{"chat_template_kwargs":{"enable_thinking":true},"repetition_penalty":1.05}}'
+
+  nemotron-super:
+    name: "Nemotron 3 Super 120B A12B"
+    model_id: "nvidia/nemotron-3-super-120b-a12b"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    supported_languages: [en, de, es, fr, it, ja, zh]
+    system_prompt: ""
+    # SIN repetition_penalty (el blueprint traia 1.05). Con el mismo contexto
+    # real de un turno "pasa al modo inspeccion": con 1.05 invoco cambiar_skill
+    # 3 de 4 veces y la otra dijo "cambio de modo activado" sin invocarla; sin
+    # penalizacion, 4 de 4. Penalizar tokens repetidos estropea el formato de las
+    # llamadas a herramientas, que repite llaves, comillas y nombres.
+    extra_params: '{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
+
+  nemotron-super-reasoning:
+    name: "Nemotron 3 Super 120B A12B (Reasoning)"
+    model_id: "nvidia/nemotron-3-super-120b-a12b"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    supported_languages: [en, de, es, fr, it, ja, zh]
+    system_prompt: ""
+    extra_params: '{"extra_body":{"chat_template_kwargs":{"enable_thinking":true},"repetition_penalty":1.05}}'
+
+  # Alternativa rapida para el robot (anadida): primer token ~550 ms frente a
+  # ~700 ms de Super, respuestas de charla mas cortas. Pese al nombre, con
+  # enable_thinking=false responde directo. Los idiomas no estan publicados en
+  # el catalogo; el espanol esta verificado en las pruebas de este proyecto.
+  nemotron-nano-omni:
+    name: "Nemotron 3 Nano Omni 30B A3B"
+    model_id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    base_url: "https://integrate.api.nvidia.com/v1"
+    supported_languages: [en, de, es, fr, it, ja, zh]
+    system_prompt: ""
+    extra_params: '{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
+
+# ── TTS Services (Cascaded pipeline) ──
+tts:
+  magpie-multilingual-tts:
+    name: "Magpie TTS Multilingual"
+    server: "grpc.nvcf.nvidia.com:443"
+    # Voz latina (es-US), la misma que la version local. En la nube el primer
+    # audio llega en ~230 ms una vez caliente; la primera peticion tras un rato
+    # parado puede tardar mas (arranque en frio de la funcion NVCF).
+    voice_id: "Magpie-Multilingual.ES-US.Diego.Happy"
+    model: "magpie-tts-multilingual"
+    function_id: "877104f7-e885-42b9-8de8-f6e4c6303969"
+    synthesis_mode: stitched
+
+  chatterbox-multilingual-tts:
+    name: "Chatterbox TTS Multilingual"
+    server: "grpc.nvcf.nvidia.com:443"
+    voice_id: "Chatterbox-Multilingual.en-US.Male"
+    model: "chatterbox-tts-multilingual"
+    function_id: "ddacc747-1269-4fab-bfd9-8f593dead106"
+    synthesis_mode: per_sentence
+
+# ── ASR Services (Cascaded pipeline) ──
+asr:
+  parakeet-rnnt:
+    name: "Parakeet 1.1B RNNT Multilingual ASR"
+    server: "grpc.nvcf.nvidia.com:443"
+    model: "parakeet-1.1b-rnnt-multilingual-asr"
+    function_id: "71203149-d3b7-4460-8231-1be2543a1fca"

@@ -1,0 +1,24 @@
+# TURN server for remote WebRTC clients.
+services:
+  coturn:
+    profiles: ["turn"]
+    image: instrumentisto/coturn:4
+    network_mode: host
+    command:
+      - "-n"
+      - "--log-file=stdout"
+      - "--listening-port=3478"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--realm=voiceagent"
+      - "--lt-cred-mech"
+      - "--user=${TURN_USERNAME:-admin}:${TURN_PASSWORD:-admin}"
+      - "--no-multicast-peers"
+      - "--no-cli"
+      - "--fingerprint"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

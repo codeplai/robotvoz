@@ -1,0 +1,69 @@
+services:
+  nvidia-llm-vllm-omni:
+    profiles:
+      - omni-assistant/workstation
+      - omni-assistant-subagents/workstation
+      - omni-assistant/dgx-spark
+      - omni-assistant-subagents/dgx-spark
+      - omni-assistant/jetson-thor
+    container_name: vllm-nemotron-omni
+    image: vllm/vllm-openai:v0.20.0-cu130
+    pull_policy: if_not_present
+    ipc: host
+    shm_size: 16GB
+    cpuset: ${VLLM_CPUSET:-}
+    env_file:
+      - ../.env
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+      - HF_HUB_CACHE=/root/.cache/huggingface/hub
+    ports:
+      - "8002:8002"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - llm_cache:/root/.cache/vllm
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install --no-cache-dir "vllm[audio]==0.20.0" && \
+        vllm serve nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 \
+          --host 0.0.0.0 \
+          --max-num-seqs 4 \
+          --max-model-len 32768 \
+          --port 8002 \
+          --trust-remote-code \
+          --gpu-memory-utilization 0.5 \
+          --limit-mm-per-prompt '{"video": 999, "image": 999, "audio": 999}' \
+          --media-io-kwargs '{"video": {"fps": 2,  "num_frames": 256}}' \
+          --video-pruning-rate 0.5 \
+          --enable-prefix-caching \
+          --max-num-batched-tokens 8192 \
+          --reasoning-parser nemotron_v3 \
+          --enable-auto-tool-choice \
+          --tool-call-parser qwen3_coder \
+          --reasoning-config '{"reasoning_start_str": "<think>", "reasoning_end_str": "\nI have to finalize the answer now.</think>"}'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 1800s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  llm_cache:

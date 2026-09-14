@@ -1,0 +1,15 @@
+# OpenTelemetry trace collector (opt-in via ENABLE_TRACING).
+# Phoenix UI is available at http://localhost:6006.
+services:
+  phoenix:
+    profiles: ["tracing"]
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

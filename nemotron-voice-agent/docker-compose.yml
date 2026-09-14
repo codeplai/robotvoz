@@ -1,0 +1,251 @@
+name: nemotron-voice-agent
+
+# Compose deployments are recipe-based. Every profile is a complete,
+# self-contained deployment recipe so users never have to AND two
+# profiles together.
+#
+#   <example>                  cloud-only models
+#   <example>/<hardware>       on-prem models with local sidecars
+#
+# Examples:
+#   generic-assistant            Cascaded ASR + LLM + TTS Pipeline (Generic Assistant)
+#   multilingual-assistant       Cascaded Multilingual ASR + LLM + TTS Pipeline (Multilingual Assistant)
+#   omni-assistant               Cascaded Omni LLM + TTS Pipeline (Omni Assistant)
+#   omni-assistant-subagents     Cascaded Omni LLM + TTS Pipeline (Omni Assistant Subagents)
+#   frontend-backend-agent               Cascaded Frontend/Backend Agent Pipeline (Airline Assistant)
+#
+# Hardware targets:
+#   workstation               Single GPU with 80+ GB VRAM or modify to support multiple GPUs
+#   dgx-spark                 DGX Spark with 128 GB unified memory
+#   jetson-thor               Jetson Thor with 128 GB unified memory
+#
+# Cloud-only recipes:
+#   docker compose --profile generic-assistant up
+#   docker compose --profile multilingual-assistant up
+#   docker compose --profile omni-assistant up
+#   docker compose --profile omni-assistant-subagents up
+#   docker compose --profile frontend-backend-agent up
+#
+# On-prem recipes:
+#   docker compose --profile generic-assistant/workstation up
+#   docker compose --profile generic-assistant/workstation-perf up
+#   docker compose --profile generic-assistant/dgx-spark up
+#   docker compose --profile generic-assistant/jetson-thor up
+#   docker compose --profile multilingual-assistant/workstation up
+#   docker compose --profile multilingual-assistant/dgx-spark up
+#   docker compose --profile omni-assistant/workstation up
+#   docker compose --profile omni-assistant/dgx-spark up
+#   docker compose --profile omni-assistant/jetson-thor up
+#   docker compose --profile omni-assistant-subagents/workstation up
+#   docker compose --profile omni-assistant-subagents/dgx-spark up
+#   docker compose --profile frontend-backend-agent/workstation up
+#
+# Observability profiles compose orthogonally with any recipe:
+#   docker compose --profile <recipe> --profile tracing up   # Phoenix OTel
+#   docker compose --profile <recipe> --profile turn up      # coturn TURN
+
+include:
+  - path: docker/docker-compose.nemotron3-nano.yaml
+  - path: docker/docker-compose.nemotron3-super.yaml
+  - path: docker/docker-compose.nemotron-asr.yaml
+  - path: docker/docker-compose.parakeet-asr.yaml
+  - path: docker/docker-compose.magpie-tts.yaml
+  - path: docker/docker-compose.chatterbox-tts.yaml
+  - path: docker/docker-compose.magpie-zeroshot-tts.yaml
+  - path: docker/docker-compose.nemotron3-omni.yaml
+  - path: docker/docker-compose.speech-jetson.yaml
+  - path: docker/docker-compose.coturn.yaml
+  - path: docker/docker-compose.phoenix.yaml
+  - path: src/examples/frontend_backend_agent/airline/database/docker-compose.yml
+
+x-app: &app-base
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  image: nemotron-voice-agent:latest
+  cpuset: ${PIPECAT_CPUSET:-}
+  command: ["uv", "run", "python", "src/server.py", "--host", "0.0.0.0"]
+  ports:
+    - "${PIPELINE_APP_PORT:-7860}:7860"
+  env_file:
+    - .env
+  volumes:
+    - ./src:/app/src:ro
+    - ./examples_registry.yaml:/app/examples_registry.yaml:ro
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fk $$(test \"$$(printf %s \"$${PIPELINE_TLS:-true}\" | tr '[:upper:]' '[:lower:]')\" = true && echo https || echo http)://localhost:7860/health || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "5"
+
+x-app-env: &app-env
+  APP_RUNTIME: container
+  TRANSPORT_SELECTION: ${TRANSPORT_SELECTION:-}
+  PIPELINE_TLS: ${PIPELINE_TLS:-true}
+
+# Platform overrides keep recipe services small and make future hardware targets
+# a one-anchor addition.
+x-platform-cloud: &platform-cloud
+  PLATFORM: cloud
+
+x-platform-workstation: &platform-workstation
+  PLATFORM: workstation
+
+x-platform-dgx-spark: &platform-dgx-spark
+  PLATFORM: dgxspark
+
+x-platform-jetson-thor: &platform-jetson-thor
+  PLATFORM: jetsonthor
+
+services:
+  generic-assistant:
+    <<: *app-base
+    profiles:
+      - generic-assistant
+    environment:
+      <<: [*app-env, *platform-cloud]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-generic-assistant}
+
+  generic-assistant-workstation:
+    <<: *app-base
+    profiles:
+      - generic-assistant/workstation
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-generic-assistant}
+
+  generic-assistant-dgx-spark:
+    <<: *app-base
+    profiles:
+      - generic-assistant/dgx-spark
+    environment:
+      <<: [*app-env, *platform-dgx-spark]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-generic-assistant}
+
+  generic-assistant-jetson-thor:
+    <<: *app-base
+    profiles:
+      - generic-assistant/jetson-thor
+    environment:
+      <<: [*app-env, *platform-jetson-thor]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-generic-assistant}
+
+  generic-assistant-workstation-perf:
+    <<: *app-base
+    profiles:
+      - generic-assistant/workstation-perf
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: generic-assistant
+      UVICORN_WORKERS: "200"
+      PROMPT_FILE_PATH: ${PROMPT_FILE_PATH:-}
+      PROMPT_SELECTOR: ${PROMPT_SELECTOR:-}
+      USE_SILERO_VAD_TURN_DETECTION: "true"
+      SILERO_VAD_STOP_SECS: "0.5"
+      AUDIO_OUT_10MS_CHUNKS: "40"
+      ENABLE_WELCOME_MESSAGE: "false"
+
+  multilingual-assistant:
+    <<: *app-base
+    profiles:
+      - multilingual-assistant
+    environment:
+      <<: [*app-env, *platform-cloud]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-multilingual-assistant}
+
+  multilingual-assistant-workstation:
+    <<: *app-base
+    profiles:
+      - multilingual-assistant/workstation
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-multilingual-assistant}
+
+  multilingual-assistant-dgx-spark:
+    <<: *app-base
+    profiles:
+      - multilingual-assistant/dgx-spark
+    environment:
+      <<: [*app-env, *platform-dgx-spark]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-multilingual-assistant}
+
+  omni-assistant:
+    <<: *app-base
+    profiles:
+      - omni-assistant
+    environment:
+      <<: [*app-env, *platform-cloud]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant}
+
+  omni-assistant-workstation:
+    <<: *app-base
+    profiles:
+      - omni-assistant/workstation
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant}
+
+  omni-assistant-dgx-spark:
+    <<: *app-base
+    profiles:
+      - omni-assistant/dgx-spark
+    environment:
+      <<: [*app-env, *platform-dgx-spark]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant}
+
+  omni-assistant-jetson-thor:
+    <<: *app-base
+    profiles:
+      - omni-assistant/jetson-thor
+    environment:
+      <<: [*app-env, *platform-jetson-thor]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant}
+
+  omni-assistant-subagents:
+    <<: *app-base
+    profiles:
+      - omni-assistant-subagents
+    environment:
+      <<: [*app-env, *platform-cloud]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant-subagents}
+
+  omni-assistant-subagents-workstation:
+    <<: *app-base
+    profiles:
+      - omni-assistant-subagents/workstation
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant-subagents}
+
+  omni-assistant-subagents-dgx-spark:
+    <<: *app-base
+    profiles:
+      - omni-assistant-subagents/dgx-spark
+    environment:
+      <<: [*app-env, *platform-dgx-spark]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-omni-assistant-subagents}
+
+  frontend-backend-agent:
+    <<: *app-base
+    profiles:
+      - frontend-backend-agent
+    environment:
+      <<: [*app-env, *platform-cloud]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-frontend-backend-agent}
+
+  frontend-backend-agent-workstation:
+    <<: *app-base
+    profiles:
+      - frontend-backend-agent/workstation
+    environment:
+      <<: [*app-env, *platform-workstation]
+      EXAMPLE_SELECTION: ${EXAMPLE_SELECTION:-frontend-backend-agent}

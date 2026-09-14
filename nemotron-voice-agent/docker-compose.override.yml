@@ -1,0 +1,201 @@
+# DNS fijo para los contenedores en ejecucion.
+#
+# La red entrega 8 servidores DNS y solo 3 responden. glibc dentro del
+# contenedor usa unicamente los 3 primeros, y el orden varia en cada arranque,
+# asi que la resolucion fallaba de forma intermitente. Esto evita el problema
+# fijando solo los que funcionan.
+#
+# Comprobar con:
+#   for ns in 10.24.52.183 172.25.0.46 172.25.0.73; do nslookup huggingface.co $ns; done
+
+# NOTA SOBRE DNS
+#
+# Aqui hubo un bloque `dns:` fijando 10.24.52.183, 172.25.0.46 y 172.25.0.73.
+# Era un parche para una red concreta (ESAN) que entregaba 8 servidores DNS de
+# los cuales solo 3 respondian: glibc dentro del contenedor lee unicamente los
+# 3 primeros y Docker los ordenaba al azar, asi que la resolucion fallaba de
+# forma intermitente y un nombre inexistente tardaba 12 segundos en fallar.
+#
+# En una red sana NO hace falta: Docker hereda el DNS del host y funciona.
+# Se retiro al cambiar de red, donde aquellos 3 servidores ya no existen y
+# mantenerlos habria dejado los contenedores sin resolucion.
+#
+# Si vuelves a una red con DNS poco fiables, el sintoma es que las descargas
+# y los arranques se cuelgan sin error claro. Diagnostico:
+#
+#   resolvectl status | grep -i "dns servers"
+#   for ns in <cada uno>; do nslookup huggingface.co $ns; done
+#
+# y si solo responden algunos, reintroduce en los cuatro servicios:
+#
+#   dns: [<los que respondan>]
+#
+# Para la construccion de imagenes el equivalente esta en buildkitd.toml.
+
+services:
+  # Pipecat usa el tokenizador de frases de NLTK, cuyos datos (punkt_tab) se
+  # descargan de raw.githubusercontent.com. Esa red bloquea el CDN de ficheros
+  # de GitHub (185.199.x), asi que el arranque se colgaba en un SYN_SENT que
+  # nunca respondia: la app nunca llegaba a escuchar en el 7860.
+  #
+  # Los datos se bajaron por la unica via de GitHub que si funciona aqui, un
+  # clonado parcial por protocolo git:
+  #   git clone --depth 1 --branch gh-pages --filter=blob:none --sparse \
+  #     https://github.com/nltk/nltk_data.git
+  #   git sparse-checkout set packages/tokenizers
+  # y se descomprimio punkt_tab.zip en ../nltk_data/tokenizers/
+  #
+  # Se montan de solo lectura y NLTK_DATA apunta ahi, asi que ya no intenta
+  # ninguna descarga. Sobrevive a que Docker recree el contenedor.
+  multilingual-assistant-dgx-spark:
+    # Imagen con el SDK del Unitree G1 encima de la del blueprint.
+    # Se construye con:  docker buildx build --builder default \
+    #                      -f docker/Dockerfile.g1 -t nemotron-voice-agent:g1 .
+    # Ojo: hay que usar el constructor "default", no el "spark" con driver
+    # docker-container, porque ese no ve las imagenes locales e intenta
+    # descargar nemotron-voice-agent:latest de un registro.
+    image: nemotron-voice-agent:g1
+    environment:
+      NLTK_DATA: /opt/nltk_data
+      # --- Humanoide Unitree G1 ---------------------------------------------
+      # Con G1_ENABLED=false las acciones responden simuladas y el agente de
+      # voz funciona igual. Ponerlo a true SOLO cuando el SDK este instalado en
+      # la imagen y el robot este accesible por red.
+      #
+      # Red: el PC de a bordo del G1 esta en 192.168.123.161. La interfaz de
+      # este equipo debe estar en la misma subred (p.ej. 192.168.123.99), y el
+      # contenedor necesita network_mode: host para que DDS funcione, porque
+      # CycloneDDS usa multicast y no atraviesa el bridge de Docker.
+      # El SDK se instala en /opt/g1-python (no en el venv de la app, porque
+      # `uv run` lo sincronizaria y borraria lo anadido a mano).
+      PYTHONPATH: /opt/g1-python
+      LD_LIBRARY_PATH: /opt/cyclonedds/lib
+      G1_ENABLED: "${G1_ENABLED:-false}"
+      G1_IFACE: "${G1_IFACE:-eth0}"
+      G1_VEL_LINEAL: "${G1_VEL_LINEAL:-0.3}"
+      G1_VEL_ANGULAR: "${G1_VEL_ANGULAR:-0.5}"
+    volumes:
+      - ./src:/app/src:ro
+      - ./examples_registry.yaml:/app/examples_registry.yaml:ro
+      - ../nltk_data:/opt/nltk_data:ro
+      # La interfaz movil se monta DENTRO del directorio estatico de la app.
+      # Asi se sirve desde el MISMO origen que la API (puerto 7860), lo que
+      # evita tres problemas de golpe en el movil:
+      #   - un solo certificado que aceptar, no dos
+      #   - sin origen cruzado (CORS)
+      #   - sin contenido mixto: la pagina va por https y el socket por wss
+      # Ruta: https://<ip>:7860/movil/index.html
+      - ../robot/web:/app/client/dist/movil:ro
+    # El catalogo de servicios lista alternativas que este perfil NO despliega.
+    # is_endpoint_reachable() hace un socket.create_connection() SINCRONO dentro
+    # del bucle de eventos asincrono, asi que cada /api/services bloqueaba el
+    # servidor entero mientras esperaba por esos nombres.
+    #
+    # En esta red el DNS de un nombre inexistente tarda 12.008 s (el resolutor
+    # de Docker reenvia a los DNS externos y estos nunca contestan). Con 3
+    # nombres: 3 x 12.008 = 36.02 s. El servidor atendia peticiones en lotes
+    # cada 36.03 s, medido en los registros. Coincidencia exacta.
+    #
+    # Apuntandolos a 127.0.0.1 el DNS es instantaneo (sale de /etc/hosts) y la
+    # conexion se rechaza de inmediato, asi que se marcan como no disponibles
+    # al momento, que es la respuesta correcta.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "chatterbox-tts-service:127.0.0.1"
+      - "magpie-zeroshot-tts-service:127.0.0.1"
+      - "parakeet-rnnt-asr:127.0.0.1"
+
+  # ---- VERSION NUBE: solo APIs de NVIDIA ------------------------------------
+  #
+  #   docker compose --profile multilingual-assistant up -d
+  #
+  # Este perfil arranca UNICAMENTE el contenedor de la app (sin vLLM, ASR ni TTS
+  # locales). Todo se consume por API con NVIDIA_API_KEY:
+  #   LLM  nvidia/nemotron-3-super-120b-a12b (respaldo: nemotron-3-nano-omni)
+  #                                            https://integrate.api.nvidia.com/v1
+  #   ASR  Parakeet RNNT multilingue           grpc.nvcf.nvidia.com:443 (NVCF)
+  #   TTS  Magpie multilingue, Diego.Happy     grpc.nvcf.nvidia.com:443 (NVCF)
+  #
+  # Mismo codigo, skills, seguridad e interfaz movil que la version local. Lo
+  # unico distinto es el registro (examples_registry.nube.yaml), que fija los
+  # servicios de la nube como defecto. Usa el mismo puerto 7860, asi que no
+  # puede correr a la vez que la version local: parar una antes de la otra.
+  multilingual-assistant:
+    image: nemotron-voice-agent:g1
+    environment:
+      # Si el modelo principal falla dos veces seguidas por saturacion de la
+      # nube, el tercer intento va a este modelo. Ver llm_nube.py.
+      LLM_MODELO_RESPALDO: "${LLM_MODELO_RESPALDO:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning}"
+      NLTK_DATA: /opt/nltk_data
+      PYTHONPATH: /opt/g1-python
+      LD_LIBRARY_PATH: /opt/cyclonedds/lib
+      G1_ENABLED: "${G1_ENABLED:-false}"
+      G1_IFACE: "${G1_IFACE:-eth0}"
+      G1_VEL_LINEAL: "${G1_VEL_LINEAL:-0.3}"
+      G1_VEL_ANGULAR: "${G1_VEL_ANGULAR:-0.5}"
+    volumes:
+      - ./src:/app/src:ro
+      - ./examples_registry.nube.yaml:/app/examples_registry.yaml:ro
+      - ../nltk_data:/opt/nltk_data:ro
+      - ../robot/web:/app/client/dist/movil:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  nemotron-asr-streaming-multilingual-dgx-spark:
+  # ---- Qwen3.5 4B ----------------------------------------------------------
+  #
+  # Banderas respecto al comando del blueprint (que era para el Nemotron 30B):
+  #   - fuera --moe-backend: Qwen3.5-4B es denso, no MoE
+  #   - fuera --mamba_ssm_cache_dtype: no es Mamba
+  #   - fuera --trust-remote-code: Qwen no lo necesita
+  #   - --reasoning-parser qwen3 (era nemotron_v3): separa el bloque <think>
+  #     si alguna peticion llegara sin enable_thinking=false
+  #   - herramientas ACTIVADAS: la multilingue ahora tiene skills con acciones
+  #     (ver src/examples/multilingual/tools.yaml). Qwen3.5 usa el analizador
+  #     qwen3_coder, no el nemotron_json del Nemotron.
+  #   - --language-model-only: Qwen3.5-4B es MULTIMODAL (la arquitectura es
+  #     Qwen3_5ForConditionalGeneration y carga un Qwen2VLImageProcessor).
+  #     Un robot de voz no necesita vision, y esta bandera salta el codificador
+  #     visual y su perfilado, liberando esa memoria para la cache de atencion.
+  #
+  # --max-model-len 4096: el modelo admite 262144, pero un robot conversacional
+  # no lo necesita y bajarlo reduce mucho la memoria de cache por secuencia.
+  #
+  # Memoria: vLLM exige a la vez que el presupuesto (util x 119.6 GB) quepa en
+  # la memoria libre al arrancar (~83 GB con ASR y TTS cargados) y que supere
+  # lo ya ocupado por otros procesos (~36 GB) mas los pesos (9.3 GB).
+  # Ajuste de memoria, medido en esta maquina (no estimado):
+  #
+  #   util 0.50 -> presupuesto 59.8 GB -> sistema con 98 GB usados, 1 libre
+  #   util 0.42 -> presupuesto 50.2 GB -> sistema con 88 GB usados
+  #
+  # De ahi: memoria_usada = 38 GB fijos + (util x 119.6). Los 38 GB son ASR
+  # (10.4), TTS (5.9), la app y el sistema. Ojo: `docker stats` NO contabiliza
+  # la memoria de GPU en esta plataforma unificada, solo se ve en `free`.
+  #
+  # vLLM reservaba 1.45 millones de tokens de cache con 0.42. Un robot con
+  # 4096 de contexto y pocas sesiones a la vez necesita del orden de 20.000.
+  #
+  # 0.28 -> presupuesto 33.5 GB. Menos los 9.3 GB de pesos y lo que ya ocupan
+  # ASR y TTS en GPU, deja unos 270.000 tokens de cache, de sobra, y baja el
+  # sistema a unos 71 GB usados. Quedan casi 50 GB para los modelos que se
+  # añadan despues.
+  #
+  # Si se baja demasiado, vLLM aborta con:
+  #   ValueError: No available memory for the cache blocks
+  # porque resta del presupuesto lo que ya ocupan los otros procesos.
+  nvidia-llm-vllm:
+    command:
+      - |
+        vllm serve Qwen/Qwen3.5-4B \
+          --host 0.0.0.0 \
+          --port 8000 \
+          --max-model-len 4096 \
+          --max-num-seqs 64 \
+          --gpu-memory-utilization 0.28 \
+          --reasoning-parser qwen3 \
+          --enable-auto-tool-choice \
+          --tool-call-parser qwen3_coder \
+          --language-model-only \
+          --async-scheduling \
+          --kv-cache-dtype fp8
+  tts-service:

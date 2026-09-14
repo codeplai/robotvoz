@@ -115,22 +115,23 @@ Unas 10 veces más rápido que tiempo real. Holgado para un robot conversacional
 
 ## 3. Estructura de ficheros
 
-### Repositorios git
+### Repositorio git
 
-Hay **dos** repositorios, porque el blueprint de NVIDIA ya traía el suyo y
-conservarlo permite seguir sus actualizaciones:
+Un **único** repositorio en `/home/lenovo/nvidia-voice`, rama `main`, con todo:
+este README, `robot/` (scripts, cliente, web) y `nemotron-voice-agent/` (el
+código del agente, basado en el blueprint de NVIDIA con nuestros cambios).
 
-| Carpeta | Repositorio | Rama | Contenido |
-|---|---|---|---|
-| `/home/lenovo/nvidia-voice` | propio | `main` | este README, `robot/` (scripts, cliente, web) |
-| `nemotron-voice-agent/` | clon de `NVIDIA-AI-Blueprints/nemotron-voice-agent` | **`robot-g1`** | todo el código del agente con nuestros cambios; `main` queda igual que NVIDIA |
+El clon original del blueprint traía su propio `.git`. Se sacó de la carpeta a
+`/home/lenovo/nvidia-voice-blueprint-git.respaldo` para que el repositorio único
+pueda guardar sus ficheros. Ahí sigue el historial de NVIDIA con la rama
+`robot-g1`: devolverlo a su sitio restaura el repositorio original.
 
 No se versionan `.env` (claves), `nltk_data/`, `robot/venv/`, cachés ni las
-copias `*.bak` / `*.antes-*` (en el blueprint se excluyen en
-`.git/info/exclude`, sin tocar su `.gitignore`).
+copias `*.bak` / `*.antes-*`. El `.gitignore` propio del blueprint sigue
+aplicando dentro de `nemotron-voice-agent/`.
 
-Ver los cambios respecto a NVIDIA: `cd nemotron-voice-agent && git diff main robot-g1 --stat`.
-Traer una versión nueva del blueprint: `git fetch origin && git merge origin/main` estando en `robot-g1`.
+El blueprint es BSD 2-Clause: al publicarlo hay que conservar
+`nemotron-voice-agent/LICENSE` y los avisos de copyright.
 
 ```
 /home/lenovo/nvidia-voice/

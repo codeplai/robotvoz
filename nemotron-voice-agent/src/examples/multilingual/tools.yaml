@@ -1,0 +1,150 @@
+# Catalogo de herramientas del robot, en formato de funcion de OpenAI.
+#
+# Cada skill declara en prompts.yaml, bajo tools_available, cuales puede usar.
+# El esquema que se envia al modelo contiene la UNION de todas, porque no se
+# puede cambiar el esquema a mitad de sesion; el permiso real lo aplica el
+# manejador segun el skill activo. Ver tool_handlers.py.
+
+cambiar_skill:
+  type: function
+  function:
+    name: cambiar_skill
+    description: >
+      Cambia el modo del robot. Invocala directamente, sin pedir confirmacion,
+      cuando el usuario pida cambiar de modo o de tema de conversacion.
+      Modos fisicos: recepcion (atender y orientar), inspeccion (moverse y
+      revisar el espacio), mantenimiento (diagnostico del robot). Modos de
+      conversacion, cada uno con su propio tema: ia para hablar de
+      inteligencia artificial, educacion para hablar de educacion y
+      ensenanza, innovacion para hablar de innovacion. Elige el modo cuyo
+      tema coincide con lo que pide el usuario: "hablemos de educacion" es
+      educacion, no ia.
+    parameters:
+      type: object
+      properties:
+        skill:
+          type: string
+          description: Nombre del modo destino
+          enum: [recepcion, inspeccion, mantenimiento, ia, educacion, innovacion]
+      required: [skill]
+
+listar_skills:
+  type: function
+  function:
+    name: listar_skills
+    description: Enumera los modos disponibles y dice cual esta activo.
+    parameters:
+      type: object
+      properties: {}
+
+mover:
+  type: function
+  function:
+    name: mover
+    description: Desplaza el robot en una direccion una distancia dada.
+    parameters:
+      type: object
+      properties:
+        direccion:
+          type: string
+          enum: [adelante, atras, izquierda, derecha]
+        metros:
+          type: number
+          description: Distancia en metros, entre 0.1 y 10
+      required: [direccion, metros]
+
+girar:
+  type: function
+  function:
+    name: girar
+    description: Gira el robot sobre su eje.
+    parameters:
+      type: object
+      properties:
+        grados:
+          type: number
+          description: Grados a girar; positivo a la derecha, negativo a la izquierda
+      required: [grados]
+
+detener:
+  type: function
+  function:
+    name: detener
+    description: Detiene inmediatamente cualquier movimiento del robot.
+    parameters:
+      type: object
+      properties: {}
+
+leer_sensor:
+  type: function
+  function:
+    name: leer_sensor
+    description: Lee un sensor del robot y devuelve su valor actual.
+    parameters:
+      type: object
+      properties:
+        sensor:
+          type: string
+          enum: [bateria, distancia, temperatura, inclinacion]
+      required: [sensor]
+
+postura:
+  type: function
+  function:
+    name: postura
+    description: >
+      Cambia la postura del robot humanoide. "levantarse" pasa de cuclillas a
+      de pie, "sentarse" al reves, "alto" y "bajo" ajustan la altura al andar.
+    parameters:
+      type: object
+      properties:
+        accion:
+          type: string
+          enum: [levantarse, sentarse, alto, bajo]
+      required: [accion]
+
+gesto:
+  type: function
+  function:
+    name: gesto
+    description: >
+      Ejecuta un gesto con los brazos. Usalo al saludar o despedirte de alguien.
+    parameters:
+      type: object
+      properties:
+        cual:
+          type: string
+          enum: [saludar, dar_la_mano]
+      required: [cual]
+
+parada_emergencia:
+  type: function
+  function:
+    name: parada_emergencia
+    description: >
+      PELIGRO: deja el robot flacido al instante. Si esta de pie, SE CAE.
+      Usala solo si el usuario pide una parada de emergencia explicita o si hay
+      riesgo inmediato de dano. Para parar de andar con normalidad usa detener.
+    parameters:
+      type: object
+      properties:
+        confirmado:
+          type: boolean
+          description: El usuario ha confirmado que entiende que el robot caera
+      required: [confirmado]
+
+reportar_incidencia:
+  type: function
+  function:
+    name: reportar_incidencia
+    description: Registra una incidencia detectada durante una inspeccion.
+    parameters:
+      type: object
+      properties:
+        descripcion:
+          type: string
+          description: Que se ha detectado
+        gravedad:
+          type: string
+          enum: [baja, media, alta]
+      required: [descripcion, gravedad]
