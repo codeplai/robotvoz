@@ -115,6 +115,23 @@ Unas 10 veces más rápido que tiempo real. Holgado para un robot conversacional
 
 ## 3. Estructura de ficheros
 
+### Repositorios git
+
+Hay **dos** repositorios, porque el blueprint de NVIDIA ya traía el suyo y
+conservarlo permite seguir sus actualizaciones:
+
+| Carpeta | Repositorio | Rama | Contenido |
+|---|---|---|---|
+| `/home/lenovo/nvidia-voice` | propio | `main` | este README, `robot/` (scripts, cliente, web) |
+| `nemotron-voice-agent/` | clon de `NVIDIA-AI-Blueprints/nemotron-voice-agent` | **`robot-g1`** | todo el código del agente con nuestros cambios; `main` queda igual que NVIDIA |
+
+No se versionan `.env` (claves), `nltk_data/`, `robot/venv/`, cachés ni las
+copias `*.bak` / `*.antes-*` (en el blueprint se excluyen en
+`.git/info/exclude`, sin tocar su `.gitignore`).
+
+Ver los cambios respecto a NVIDIA: `cd nemotron-voice-agent && git diff main robot-g1 --stat`.
+Traer una versión nueva del blueprint: `git fetch origin && git merge origin/main` estando en `robot-g1`.
+
 ```
 /home/lenovo/nvidia-voice/
 ├── README.md                       este documento
