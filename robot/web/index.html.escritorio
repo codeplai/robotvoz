@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de voz — Robot</title>
+<style>
+  :root{
+    --fondo:#0f1115; --panel:#171a21; --borde:#262b36; --texto:#e6e9ef;
+    --suave:#9aa4b6; --verde:#76b900; --rojo:#e0475b; --ambar:#d9a441;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fondo);color:var(--texto);
+       font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .envoltura{max-width:920px;margin:0 auto;padding-block:28px;padding-left:20px;padding-right:20px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--suave);margin:0 0 24px;font-size:14px}
+  .rejilla{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:700px){.rejilla{grid-template-columns:1fr}}
+  .tarjeta{background:var(--panel);border:1px solid var(--borde);border-radius:10px;padding:16px}
+  .tarjeta h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;
+              color:var(--suave);margin:0 0 12px;font-weight:600}
+  .fila{display:flex;align-items:center;justify-content:space-between;
+        padding:7px 0;border-bottom:1px solid var(--borde);font-size:14px}
+  .fila:last-child{border-bottom:0}
+  .punto{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:8px;
+         background:var(--suave);vertical-align:middle}
+  .ok{background:var(--verde)} .mal{background:var(--rojo)} .espera{background:var(--ambar)}
+  .controles{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0}
+  button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:11px 20px;cursor:pointer}
+  #conectar{background:var(--verde);color:#0b0d10}
+  #conectar.activo{background:var(--rojo);color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  select{background:var(--panel);color:var(--texto);border:1px solid var(--borde);
+         border-radius:8px;padding:10px;font:inherit}
+  #nivel{height:6px;background:var(--borde);border-radius:3px;overflow:hidden;flex:1;min-width:120px}
+  #barra{height:100%;width:0;background:var(--verde);transition:width .08s}
+  #dialogo{min-height:240px;max-height:380px;overflow-y:auto;display:flex;
+           flex-direction:column;gap:10px}
+  .burbuja{padding:9px 13px;border-radius:12px;max-width:82%;font-size:14px;white-space:pre-wrap}
+  .yo{align-self:flex-end;background:#24303f}
+  .bot{align-self:flex-start;background:#1e2a1a;border:1px solid #2f4020}
+  .provisional{opacity:.55;font-style:italic}
+  #registro{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+            color:var(--suave);max-height:150px;overflow-y:auto;white-space:pre-wrap}
+  .vacio{color:var(--suave);font-size:14px;text-align:center;padding:40px 0}
+</style>
+</head>
+<body>
+<div class="envoltura">
+  <h1>Prueba de voz en español</h1>
+  <p class="sub">Agente Nemotron local en el DGX Spark. Misma ruta de API que usa el robot.</p>
+
+  <div class="rejilla">
+    <div class="tarjeta">
+      <h2>Servicios</h2>
+      <div class="fila"><span><i class="punto" id="p-app"></i>Aplicación</span><span id="v-app">—</span></div>
+      <div class="fila"><span><i class="punto" id="p-asr"></i>Reconocimiento</span><span id="v-asr">—</span></div>
+      <div class="fila"><span><i class="punto" id="p-llm"></i>Modelo de lenguaje</span><span id="v-llm">—</span></div>
+      <div class="fila"><span><i class="punto" id="p-tts"></i>Voz sintética</span><span id="v-tts">—</span></div>
+    </div>
+    <div class="tarjeta">
+      <h2>Sesión</h2>
+      <div class="fila"><span>Estado</span><span id="v-estado">Sin conectar</span></div>
+      <div class="fila"><span>Identificador</span><span id="v-sesion">—</span></div>
+      <div class="fila"><span>Idioma</span><span id="v-idioma">es-US</span></div>
+      <div class="fila"><span>Turno</span><span id="v-turno">—</span></div>
+      <div class="fila"><span>Audio recibido</span><span id="v-audio">0 s</span></div>
+    </div>
+  </div>
+
+  <div class="controles">
+    <button id="conectar">Conectar y hablar</button>
+    <select id="idioma">
+      <option value="es-US" selected>Español (es-US)</option>
+      <option value="es-ES">Español de España (es-ES)</option>
+      <option value="en-US">Inglés (en-US)</option>
+    </select>
+    <div id="nivel"><div id="barra"></div></div>
+  </div>
+
+  <div class="tarjeta" style="margin-bottom:16px">
+    <h2>Conversación</h2>
+    <div id="dialogo"><div class="vacio">Pulsa «Conectar y hablar» y habla al micrófono.</div></div>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Registro</h2>
+    <div id="registro"></div>
+  </div>
+</div>
+
+<script type="module">
+import { codificarAudio, decodificar, TASA } from "./protocolo.js";
+
+const API = location.origin.replace(/:\d+$/, "") + ":7860";
+const $ = (id) => document.getElementById(id);
+let ws = null, ctxEntrada = null, ctxSalida = null, flujo = null;
+let siguienteHueco = 0, segundosAudio = 0, conectado = false;
+let fuentesVivas = [];
+
+function log(t) {
+  const r = $("registro");
+  r.textContent += `${new Date().toLocaleTimeString()}  ${t}\n`;
+  r.scrollTop = r.scrollHeight;
+}
+
+function marca(id, clase, texto) {
+  $("p-" + id).className = "punto " + clase;
+  $("v-" + id).textContent = texto;
+}
+
+let burbujaUsuario = null, burbujaBot = null, hayTextoTts = false;
+
+function nuevaBurbuja(quien) {
+  const d = $("dialogo");
+  d.querySelector(".vacio")?.remove();
+  const b = document.createElement("div");
+  b.className = "burbuja " + (quien === "yo" ? "yo" : "bot");
+  d.appendChild(b);
+  d.scrollTop = d.scrollHeight;
+  return b;
+}
+
+function desplazar() { const d = $("dialogo"); d.scrollTop = d.scrollHeight; }
+
+// Los textos llegan como mensajes RTVI, no como frames de texto del protobuf.
+//   user-transcription  {text, final}  lo que dice el usuario; llega parcial
+//                                      y se reemplaza hasta que final=true
+//   bot-tts-text        {text}         lo que el bot esta pronunciando
+//   bot-llm-text        {text}         respaldo si el TTS no emite texto
+function manejarEvento(m) {
+  // algunos eventos llegan envueltos como {type:"server-message", data:{type,...}}
+  if (m.type === "server-message" && m.data && m.data.type) m = m.data;
+  const datos = m.data || {};
+  switch (m.type) {
+    case "user-started-speaking":
+      $("v-turno").textContent = "Escuchando";
+      break;
+
+    case "user-transcription": {
+      const texto = (datos.text || "").trim();
+      if (!texto) break;
+      if (!burbujaUsuario) burbujaUsuario = nuevaBurbuja("yo");
+      burbujaUsuario.textContent = texto;
+      burbujaUsuario.classList.toggle("provisional", !datos.final);
+      if (datos.final) burbujaUsuario = null;
+      desplazar();
+      break;
+    }
+
+    case "bot-tts-text":
+      hayTextoTts = true;
+      if (datos.text) {
+        if (!burbujaBot) burbujaBot = nuevaBurbuja("bot");
+        burbujaBot.textContent += datos.text;
+        desplazar();
+      }
+      break;
+
+    case "bot-llm-text":
+      // solo si el canal de TTS no esta dando texto, para no duplicar
+      if (!hayTextoTts && datos.text) {
+        if (!burbujaBot) burbujaBot = nuevaBurbuja("bot");
+        burbujaBot.textContent += datos.text;
+        desplazar();
+      }
+      break;
+
+    case "bot-started-speaking":
+      $("v-turno").textContent = "Hablando";
+      break;
+
+    case "bot-stopped-speaking":
+      $("v-turno").textContent = "En espera";
+      burbujaBot = null;
+      break;
+
+    case "user-stopped-speaking":
+      $("v-turno").textContent = "Procesando";
+      break;
+
+    default:
+      log(`evento ${m.type}`);
+  }
+}
+
+// ---- Estado de los servicios ----
+async function revisarServicios() {
+  try {
+    const s = await fetch(`${API}/health`);
+    marca("app", s.ok ? "ok" : "mal", s.ok ? "En línea" : "Caída");
+  } catch { marca("app", "mal", "Inalcanzable"); return; }
+
+  try {
+    const r = await fetch(`${API}/api/services`);
+    const j = await r.json();
+    const sacar = (cat) => {
+      const lista = j[cat] || j?.services?.[cat] || [];
+      const activo = (Array.isArray(lista) ? lista : Object.values(lista))
+        .find((x) => x?.source === "self-hosted") || (Array.isArray(lista) ? lista[0] : null);
+      return activo?.name || activo?.id || "—";
+    };
+    marca("asr", "ok", sacar("asr"));
+    marca("llm", "ok", sacar("llm"));
+    marca("tts", "ok", sacar("tts"));
+  } catch (e) {
+    ["asr", "llm", "tts"].forEach((c) => marca(c, "espera", "Calentando"));
+    log("servicios aún no listos");
+  }
+}
+
+// ---- Reproduccion del audio del bot ----
+function reproducir(pcm) {
+  if (!ctxSalida) return;
+  const muestras = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 2);
+  const buf = ctxSalida.createBuffer(1, muestras.length, TASA);
+  const canal = buf.getChannelData(0);
+  for (let i = 0; i < muestras.length; i++) canal[i] = muestras[i] / 32768;
+
+  const fuente = ctxSalida.createBufferSource();
+  fuente.buffer = buf;
+  fuente.connect(ctxSalida.destination);
+  fuentesVivas.push(fuente);
+  fuente.onended = () => { fuentesVivas = fuentesVivas.filter((f) => f !== fuente); };
+  const ahora = ctxSalida.currentTime;
+  if (siguienteHueco < ahora) siguienteHueco = ahora + 0.05;
+  fuente.start(siguienteHueco);
+  siguienteHueco += buf.duration;
+
+  segundosAudio += buf.duration;
+  $("v-audio").textContent = segundosAudio.toFixed(1) + " s";
+}
+
+function cortarAudio() {
+  fuentesVivas.forEach((f) => { try { f.stop(); } catch {} });
+  fuentesVivas = [];
+  siguienteHueco = 0;
+}
+
+// ---- Conexion ----
+async function conectar() {
+  const idioma = $("idioma").value;
+  $("v-idioma").textContent = idioma;
+  $("v-estado").textContent = "Abriendo sesión…";
+
+  const cuerpo = {
+    pipeline_mode: "multilingual-assistant",
+    llm_id: "nemotron-nano",
+    asr_language_code: idioma,
+    prompt_key: "multilingual_voice_assistant",
+  };
+  const r = await fetch(`${API}/api/session-config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  });
+  if (!r.ok) throw new Error(`session-config HTTP ${r.status}: ${await r.text()}`);
+  const { session_id } = await r.json();
+  $("v-sesion").textContent = session_id.slice(0, 12) + "…";
+  log(`sesión ${session_id}`);
+
+  flujo = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  });
+  ctxEntrada = new AudioContext({ sampleRate: TASA });
+  ctxSalida = new AudioContext({ sampleRate: TASA });
+  await ctxEntrada.audioWorklet.addModule("./captura.js");
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const host = API.replace(/^https?:\/\//, "");
+  ws = new WebSocket(`${proto}//${host}/api/ws?session_id=${session_id}`);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => {
+    conectado = true;
+    $("v-estado").textContent = "Conectado";
+    $("conectar").textContent = "Colgar";
+    $("conectar").classList.add("activo");
+    log("websocket abierto");
+
+    const origen = ctxEntrada.createMediaStreamSource(flujo);
+    const nodo = new AudioWorkletNode(ctxEntrada, "captura-micro");
+    nodo.port.onmessage = (ev) => {
+      const f32 = ev.data;
+      let pico = 0;
+      const i16 = new Int16Array(f32.length);
+      for (let i = 0; i < f32.length; i++) {
+        const v = Math.max(-1, Math.min(1, f32[i]));
+        i16[i] = v * 32767;
+        if (Math.abs(v) > pico) pico = Math.abs(v);
+      }
+      $("barra").style.width = Math.min(100, pico * 180) + "%";
+      if (ws?.readyState === 1) ws.send(codificarAudio(i16));
+    };
+    origen.connect(nodo);
+    nodo.connect(ctxEntrada.destination); // worklet sin salida audible
+  };
+
+  ws.onmessage = (ev) => {
+    const f = decodificar(ev.data);
+    if (f.tipo === "audio") reproducir(f.audio);
+    else if (f.tipo === "interrupcion") { cortarAudio(); burbujaBot = null; log("interrupcion"); }
+    else if (f.tipo === "mensaje") {
+      try { manejarEvento(JSON.parse(f.datos)); }
+      catch (e) { log("mensaje ilegible: " + e.message); }
+    }
+  };
+
+  ws.onerror = () => log("error de websocket");
+  ws.onclose = (e) => { log(`websocket cerrado ${e.code} ${e.reason || ""}`); desconectar(); };
+}
+
+function desconectar() {
+  conectado = false;
+  try { ws?.close(); } catch {}
+  ws = null;
+  flujo?.getTracks().forEach((t) => t.stop());
+  ctxEntrada?.close(); ctxSalida?.close();
+  ctxEntrada = ctxSalida = flujo = null;
+  cortarAudio();
+  burbujaUsuario = burbujaBot = null;
+  hayTextoTts = false;
+  $("v-turno").textContent = "—";
+  $("v-estado").textContent = "Sin conectar";
+  $("conectar").textContent = "Conectar y hablar";
+  $("conectar").classList.remove("activo");
+  $("barra").style.width = "0";
+}
+
+$("conectar").onclick = async () => {
+  if (conectado) return desconectar();
+  $("conectar").disabled = true;
+  try { await conectar(); }
+  catch (e) { log("fallo: " + e.message); $("v-estado").textContent = "Error"; desconectar(); }
+  finally { $("conectar").disabled = false; }
+};
+
+revisarServicios();
+setInterval(() => { if (!conectado) revisarServicios(); }, 10000);
+log(`API en ${API}`);
+</script>
+</body>
+</html>

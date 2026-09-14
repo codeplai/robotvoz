@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icono.svg" type="image/svg+xml">
+<title>Robot — Voz en español</title>
+<style>
+  :root{
+    --fondo:#0f1115; --panel:#171a21; --borde:#262b36; --texto:#e6e9ef;
+    --suave:#98a2b5; --verde:#76b900; --rojo:#e0475b; --ambar:#d9a441;
+    --seguro-arriba: env(safe-area-inset-top, 0px);
+    --seguro-abajo: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  /* 100dvh, no 100%: en Chrome de Android la barra de direcciones aparece y
+     desaparece al desplazar, y con 100vh el boton quedaba fuera de pantalla. */
+  html{height:100%}
+  body{height:100dvh; min-height:100dvh}
+  @supports not (height:100dvh){ body{height:100vh} }
+  /* Deslizar hacia abajo para recargar: en Chrome de Android solo se desactiva
+     en el elemento RAIZ (html). Ponerlo solo en body no sirve, y ese gesto
+     recargaba la pagina a mitad de llamada, cortando la conversacion. */
+  html, body{ overscroll-behavior-y:none; }
+  body{
+    margin:0; background:var(--fondo); color:var(--texto);
+    font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column;
+  }
+
+  /* ---------- barra superior ---------- */
+  header{
+    flex:0 0 auto;
+    padding:calc(var(--seguro-arriba) + 12px) 16px 12px;
+    border-bottom:1px solid var(--borde);
+    display:flex; align-items:center; gap:12px;
+  }
+  header h1{font-size:16px; margin:0; font-weight:650; flex:1}
+  header .sub{font-size:12px; color:var(--suave); font-weight:400; display:block; margin-top:2px}
+  .luces{display:flex; gap:6px; flex:0 0 auto}
+  .luz{width:8px; height:8px; border-radius:50%; background:var(--rojo)}
+  .luz.ok{background:var(--verde)} .luz.espera{background:var(--ambar)}
+
+  .btn-limpiar{
+    flex:0 0 auto; display:flex; align-items:center; gap:6px;
+    min-height:40px; padding:0 12px; border-radius:10px;
+    background:transparent; border:1px solid var(--borde); color:var(--suave);
+    font:inherit; font-size:14px; cursor:pointer; touch-action:manipulation;
+  }
+  .btn-limpiar:active{background:var(--panel)}
+  .btn-limpiar svg{width:16px; height:16px}
+
+  /* ---------- conversación ---------- */
+  main{
+    flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    padding:16px; display:flex; flex-direction:column; gap:10px;
+  }
+  .burbuja{
+    padding:11px 15px; border-radius:18px; max-width:85%;
+    font-size:16px; line-height:1.4; white-space:pre-wrap; word-break:break-word;
+    animation:entra .18s ease-out;
+  }
+  @keyframes entra{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+  .yo{align-self:flex-end; background:#2a3646; border-bottom-right-radius:5px}
+  .bot{align-self:flex-start; background:#1d2a18; border:1px solid #31421f; border-bottom-left-radius:5px}
+  .provisional{opacity:.5; font-style:italic}
+  .separador{
+    align-self:center; font-size:12px; color:var(--suave); text-align:center;
+    padding:6px 12px; border:1px dashed var(--borde); border-radius:10px; margin:6px 0;
+  }
+  .vacio{margin:auto; text-align:center; color:var(--suave); font-size:15px; padding:0 24px}
+  .vacio b{display:block; color:var(--texto); font-size:17px; margin-bottom:8px; font-weight:600}
+
+  /* ---------- pie con el botón ---------- */
+  footer{
+    flex:0 0 auto; border-top:1px solid var(--borde); background:var(--panel);
+    padding:14px 16px calc(var(--seguro-abajo) + 14px);
+    display:flex; flex-direction:column; gap:12px;
+  }
+  .estado{
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    font-size:13px; color:var(--suave); min-height:20px;
+  }
+  #barra-nivel{
+    flex:1; max-width:160px; height:4px; background:var(--borde);
+    border-radius:2px; overflow:hidden;
+  }
+  #nivel{height:100%; width:0; background:var(--verde); transition:width .08s}
+
+  #conectar{
+    width:100%; min-height:60px; border:0; border-radius:16px;
+    font:inherit; font-size:18px; font-weight:650; cursor:pointer;
+    background:var(--verde); color:#0b0d10;
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    transition:background .15s, transform .1s;
+    touch-action:manipulation;
+  }
+  #conectar:active{transform:scale(.985)}
+  #conectar.activo{background:var(--rojo); color:#fff}
+  #conectar:disabled{opacity:.5}
+  #conectar svg{width:22px; height:22px; flex:0 0 auto}
+
+  #pausa{
+    width:100%; min-height:50px; border-radius:14px; cursor:pointer;
+    background:transparent; border:1px solid var(--borde); color:var(--texto);
+    font:inherit; font-size:16px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    touch-action:manipulation;
+  }
+  #pausa[hidden]{display:none}
+  #pausa svg{width:18px; height:18px}
+  #pausa.en-pausa{background:var(--ambar); border-color:var(--ambar); color:#0b0d10}
+
+  .fila-ajustes{display:flex; gap:10px}
+  select{
+    flex:1; background:var(--fondo); color:var(--texto);
+    border:1px solid var(--borde); border-radius:12px;
+    padding:12px; font:inherit; font-size:15px; min-height:46px;
+  }
+  .icono-btn{
+    flex:0 0 auto; width:46px; min-height:46px; border-radius:12px;
+    background:var(--fondo); border:1px solid var(--borde); color:var(--suave);
+    font-size:18px; cursor:pointer;
+  }
+
+  /* ---------- panel de detalles ---------- */
+  #detalles{
+    position:fixed; inset:0; background:rgba(9,11,15,.88);
+    backdrop-filter:blur(3px); z-index:20;
+    padding:calc(var(--seguro-arriba) + 20px) 16px calc(var(--seguro-abajo) + 20px);
+    overflow-y:auto;
+  }
+  #detalles .caja{
+    background:var(--panel); border:1px solid var(--borde); border-radius:16px;
+    padding:18px; max-width:560px; margin:0 auto;
+  }
+  #detalles h2{font-size:14px; text-transform:uppercase; letter-spacing:.06em;
+               color:var(--suave); margin:0 0 12px; font-weight:600}
+  .fila{display:flex; justify-content:space-between; gap:12px; padding:9px 0;
+        border-bottom:1px solid var(--borde); font-size:14px}
+  .fila:last-of-type{border-bottom:0}
+  .fila span:last-child{color:var(--suave); text-align:right; word-break:break-all}
+  #registro{
+    font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--suave);
+    max-height:180px; overflow-y:auto; white-space:pre-wrap;
+    background:var(--fondo); border-radius:10px; padding:10px; margin-top:12px;
+  }
+  #cerrar-detalles{
+    width:100%; min-height:48px; margin-top:16px; border:0; border-radius:12px;
+    background:var(--borde); color:var(--texto); font:inherit; font-weight:600;
+    font-size:16px; cursor:pointer;
+  }
+  #aviso{
+    margin:12px 16px 0; padding:12px 14px; border-radius:12px;
+    background:#3a2a12; border:1px solid #5c4318; color:#f0d9a8; font-size:14px;
+  }
+
+  /* ---------- pantallas anchas ---------- */
+  @media (min-width:760px){
+    body{max-width:760px; margin:0 auto; border-left:1px solid var(--borde);
+         border-right:1px solid var(--borde)}
+    #conectar{max-width:320px; align-self:center}
+    #pausa{max-width:320px; align-self:center}
+    footer{align-items:center}
+    .fila-ajustes{width:100%; max-width:320px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="flex:1">
+    <h1>Robot</h1>
+    <span class="sub" id="sub">Voz en español · Qwen3.5</span>
+  </div>
+  <div class="luces" id="luces" title="ASR · LLM · TTS">
+    <i class="luz" id="p-asr"></i><i class="luz" id="p-llm"></i><i class="luz" id="p-tts"></i>
+  </div>
+  <button id="limpiar" class="btn-limpiar" aria-label="Limpiar conversación">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+      <path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+    </svg>
+    <span>Limpiar</span>
+  </button>
+</header>
+
+<div id="aviso" hidden></div>
+
+<main id="dialogo">
+  <div class="vacio" id="vacio">
+    <b>Pulsa para hablar</b>
+    Habla en español y el robot te responderá con su voz.
+  </div>
+</main>
+
+<footer>
+  <div class="estado">
+    <span id="v-turno">Sin conectar</span>
+    <div id="barra-nivel"><div id="nivel"></div></div>
+  </div>
+  <button id="conectar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" id="icono">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+    </svg>
+    <span id="texto-boton">Conectar y hablar</span>
+  </button>
+  <button id="pausa" hidden aria-label="Pausar la llamada">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>
+    </svg>
+    <span id="texto-pausa">Pausar</span>
+  </button>
+  <div class="fila-ajustes">
+    <select id="idioma" aria-label="Idioma de la sesión">
+      <option value="es-US" selected>Español (latino)</option>
+      <option value="en-US">Inglés</option>
+      <option value="pt-BR">Portugués</option>
+    </select>
+    <button class="icono-btn" id="abrir-detalles" aria-label="Detalles">⋯</button>
+  </div>
+</footer>
+
+<div id="detalles" hidden>
+  <div class="caja">
+    <h2>Servicios</h2>
+    <div class="fila"><span>Reconocimiento</span><span id="v-asr">—</span></div>
+    <div class="fila"><span>Modelo</span><span id="v-llm">—</span></div>
+    <div class="fila"><span>Voz</span><span id="v-tts">—</span></div>
+    <h2 style="margin-top:20px">Sesión</h2>
+    <div class="fila"><span>Identificador</span><span id="v-sesion">—</span></div>
+    <div class="fila"><span>Idioma</span><span id="v-idioma">es-US</span></div>
+    <div class="fila"><span>Audio recibido</span><span id="v-audio">0 s</span></div>
+    <div class="fila"><span>API</span><span id="v-api">—</span></div>
+    <div id="registro"></div>
+    <button id="cerrar-detalles">Cerrar</button>
+  </div>
+</div>
+
+<script type="module">
+import { codificarAudio, decodificar, mensajeClienteListo, TASA } from "./protocolo.js";
+
+// Si la página se sirve desde el propio servidor del agente (puerto 7860), la
+// API está en el mismo origen: sin CORS, sin contenido mixto y con un solo
+// certificado. Si se sirve aparte (p. ej. python -m http.server 8080), se
+// apunta al 7860 del mismo host.
+const API = location.port === "7860"
+  ? location.origin
+  : location.origin.replace(/:\d+$/, "") + ":7860";
+
+const $ = (id) => document.getElementById(id);
+let ws = null, ctxEntrada = null, ctxSalida = null, flujo = null;
+let siguienteHueco = 0, segundosAudio = 0, conectado = false;
+let fuentesVivas = [], burbujaUsuario = null, burbujaBot = null, hayTextoTts = false;
+let bloqueoPantalla = null;
+// Cada intento de conexion recibe un numero. desconectar() lo incrementa, asi
+// que los manejadores de un socket anterior quedan inertes al instante: no
+// pueden reproducir audio, mandar micro ni cerrar la conexion nueva.
+let generacion = 0;
+// Pausa: la sesion y la memoria del robot siguen vivas en el servidor; solo se
+// deja de enviar el micro y de reproducir su voz.
+let pausado = false, pausaDesde = 0, relojPausa = null;
+
+// Chrome de Android apaga la pantalla a los pocos segundos sin tocarla, y eso
+// suspende el audio a mitad de conversacion. Wake Lock lo evita.
+async function mantenerPantalla(activar) {
+  try {
+    if (activar && "wakeLock" in navigator) {
+      bloqueoPantalla = await navigator.wakeLock.request("screen");
+      log("pantalla mantenida encendida");
+    } else if (bloqueoPantalla) {
+      await bloqueoPantalla.release();
+      bloqueoPantalla = null;
+    }
+  } catch (e) { log("wake lock no disponible: " + e.message); }
+}
+// Si el usuario cambia de app y vuelve, el bloqueo se pierde: se repone.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && conectado && !bloqueoPantalla) mantenerPantalla(true);
+});
+
+$("v-api").textContent = API;
+
+function log(t) {
+  const r = $("registro");
+  r.textContent += `${new Date().toLocaleTimeString()}  ${t}\n`;
+  r.scrollTop = r.scrollHeight;
+}
+function aviso(txt) {
+  const a = $("aviso");
+  if (!txt) { a.hidden = true; return; }
+  a.textContent = txt; a.hidden = false;
+}
+function turno(t) { $("v-turno").textContent = t; }
+
+// ---- Estado de los servicios ----
+function marca(id, clase, texto) {
+  $("p-" + id).className = "luz " + clase;
+  $("v-" + id).textContent = texto;
+}
+async function revisarServicios() {
+  try {
+    const r = await fetch(`${API}/api/services`, { cache: "no-store" });
+    const j = await r.json();
+    const sacar = (cat) => {
+      const l = j[cat] || [];
+      const a = l.find((x) => x?.selected) || l.find((x) => x?.source === "self-hosted") || l[0];
+      return a?.name || "—";
+    };
+    marca("asr", "ok", sacar("asr"));
+    marca("llm", "ok", sacar("llm"));
+    marca("tts", "ok", sacar("tts"));
+    $("sub").textContent = `Voz en español · ${sacar("llm")}`;
+  } catch {
+    ["asr", "llm", "tts"].forEach((c) => marca(c, "espera", "sin conexión"));
+  }
+}
+
+// ---- Conversación ----
+function nuevaBurbuja(quien) {
+  const d = $("dialogo");
+  $("vacio")?.remove();
+  const b = document.createElement("div");
+  b.className = "burbuja " + (quien === "yo" ? "yo" : "bot");
+  d.appendChild(b);
+  d.scrollTop = d.scrollHeight;
+  return b;
+}
+function desplazar() { const d = $("dialogo"); d.scrollTop = d.scrollHeight; }
+
+// Los trozos de bot-tts-text llegan por frases y SIN espacio entre ellas
+// ("¡Buenos días!" + "Soy el robot..."). Se inserta un espacio salvo que ya
+// lo haya o el trozo empiece por un signo que va pegado a lo anterior.
+function unirTexto(previo, trozo) {
+  if (!previo || /\s$/.test(previo) || /^[\s,.;:!?)\]»]/.test(trozo)) return previo + trozo;
+  return previo + " " + trozo;
+}
+
+// Turno vacio: el reconocedor detecta voz pero a veces devuelve la
+// transcripcion vacia (el blueprint lo documenta). Entonces al modelo no le
+// llega nada y el robot se queda callado sin avisar. Si tras dejar de hablar
+// no llega transcripcion ni empieza a hablar el robot, se pide repetir.
+let temporizadorVacio = null, huboTranscripcion = false;
+function vigilarTurnoVacio() {
+  clearTimeout(temporizadorVacio);
+  temporizadorVacio = setTimeout(() => {
+    if (!huboTranscripcion && conectado && !pausado) {
+      turno("No te entendí, repite");
+      aviso("No se entendió lo que dijiste. Repítelo, por favor.");
+      setTimeout(() => aviso(""), 4000);
+      log("turno sin transcripción: se pide repetir");
+    }
+  }, 3000);
+}
+
+function manejarEvento(m) {
+  if (m.type === "server-message" && m.data && m.data.type) m = m.data;
+  const datos = m.data || {};
+  switch (m.type) {
+    case "user-started-speaking":
+      turno("Escuchando…");
+      huboTranscripcion = false;
+      clearTimeout(temporizadorVacio);
+      break;
+    case "user-stopped-speaking":
+      turno("Procesando…");
+      vigilarTurnoVacio();
+      break;
+    case "bot-started-speaking":
+      turno("Hablando…");
+      clearTimeout(temporizadorVacio);
+      break;
+    case "bot-stopped-speaking": turno("Tu turno"); burbujaBot = null; break;
+    case "user-transcription": {
+      const t = (datos.text || "").trim();
+      if (!t) break;
+      huboTranscripcion = true;
+      if (!burbujaUsuario) burbujaUsuario = nuevaBurbuja("yo");
+      burbujaUsuario.textContent = t;
+      burbujaUsuario.classList.toggle("provisional", !datos.final);
+      if (datos.final) burbujaUsuario = null;
+      desplazar();
+      break;
+    }
+    case "bot-tts-text":
+      // Unico canal de texto del bot: va sincronizado con lo que se oye.
+      if (datos.text) {
+        if (!burbujaBot) burbujaBot = nuevaBurbuja("bot");
+        burbujaBot.textContent = unirTexto(burbujaBot.textContent, datos.text);
+        desplazar();
+      }
+      break;
+    case "bot-llm-text":
+      // Ignorado a proposito. Se usaba de respaldo "si no llegaba
+      // bot-tts-text", pero el texto del modelo llega ANTES que el del
+      // sintetizador: en el primer turno se pintaban los dos y el saludo salia
+      // duplicado (con espacios la copia del modelo, sin espacios la del TTS).
+      break;
+    default: log(`evento ${m.type}`);
+  }
+}
+
+// ---- Audio del bot ----
+function reproducir(pcm) {
+  if (!ctxSalida) return;
+  // pcm es una vista DENTRO del mensaje recibido, y el audio puede empezar en
+  // una posicion IMPAR: depende de la longitud del id y del nombre del frame
+  // ("OutputAudioRawFrame#85"), que cambian en cada frame. Int16Array exige
+  // desplazamiento par y lanza RangeError, asi que se perdia un 30% del audio
+  // (medido: 15 de 50 frames del saludo). slice() copia a un buffer propio que
+  // empieza en 0, y se descarta un byte suelto si la longitud fuera impar.
+  const bytes = pcm.byteLength % 2 ? pcm.slice(0, pcm.byteLength - 1) : pcm.slice();
+  const m = new Int16Array(bytes.buffer);
+  const buf = ctxSalida.createBuffer(1, m.length, TASA);
+  const c = buf.getChannelData(0);
+  for (let i = 0; i < m.length; i++) c[i] = m[i] / 32768;
+  const f = ctxSalida.createBufferSource();
+  f.buffer = buf; f.connect(ctxSalida.destination);
+  fuentesVivas.push(f);
+  f.onended = () => { fuentesVivas = fuentesVivas.filter((x) => x !== f); };
+  const ahora = ctxSalida.currentTime;
+  if (siguienteHueco < ahora) siguienteHueco = ahora + 0.05;
+  f.start(siguienteHueco);
+  siguienteHueco += buf.duration;
+  segundosAudio += buf.duration;
+  $("v-audio").textContent = segundosAudio.toFixed(1) + " s";
+}
+function cortarAudio() {
+  fuentesVivas.forEach((f) => { try { f.stop(); } catch {} });
+  fuentesVivas = []; siguienteHueco = 0;
+}
+
+// ---- Pausa ----
+function actualizarBotonPausa() {
+  $("pausa").classList.toggle("en-pausa", pausado);
+  $("texto-pausa").textContent = pausado ? "Reanudar" : "Pausar";
+  $("pausa").setAttribute("aria-label", pausado ? "Reanudar la llamada" : "Pausar la llamada");
+}
+function pausar() {
+  if (!conectado || pausado) return;
+  pausado = true;
+  pausaDesde = Date.now();
+  cortarAudio();                                        // calla al robot si hablaba
+  flujo?.getAudioTracks().forEach((t) => (t.enabled = false));
+  $("nivel").style.width = "0";
+  actualizarBotonPausa();
+  const tic = () => {
+    const seg = Math.floor((Date.now() - pausaDesde) / 1000);
+    turno(`En pausa · ${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}`);
+  };
+  tic();
+  relojPausa = setInterval(tic, 1000);
+  log("en pausa: el robot conserva la conversación (máximo 60 min)");
+}
+function reanudar() {
+  if (!pausado) return;
+  pausado = false;
+  clearInterval(relojPausa); relojPausa = null;
+  flujo?.getAudioTracks().forEach((t) => (t.enabled = true));
+  actualizarBotonPausa();
+  turno("Tu turno");
+  log("reanudada");
+}
+
+// ---- Conexión ----
+async function conectar() {
+  // Una sola conexion viva por pagina: si queda algo de un intento anterior
+  // (p. ej. un segundo toque mientras conectaba), se cierra antes.
+  if (ws || ctxEntrada || ctxSalida || flujo) desconectar();
+  const mia = ++generacion;
+  const vigente = () => mia === generacion;
+  const idioma = $("idioma").value;
+  $("v-idioma").textContent = idioma;
+  turno("Abriendo sesión…");
+  aviso("");
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error(
+      "El navegador bloquea el micrófono. En el móvil hace falta https, " +
+      "no http. Abre esta página en https://<ip>:7860/movil/index.html"
+    );
+  }
+
+  const r = await fetch(`${API}/api/session-config`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pipeline_mode: "multilingual-assistant",
+      asr_language_code: idioma,
+      prompt_key: "skill_recepcion",
+    }),
+  });
+  if (!r.ok) throw new Error(`session-config HTTP ${r.status}: ${await r.text()}`);
+  const { session_id } = await r.json();
+  $("v-sesion").textContent = session_id;
+  log(`sesión ${session_id}`);
+  if ($("dialogo").querySelector(".burbuja")) {
+    const sep = document.createElement("div");
+    sep.className = "separador";
+    sep.textContent = "Nueva sesión · el robot no recuerda lo anterior";
+    $("dialogo").appendChild(sep);
+    desplazar();
+  }
+
+  flujo = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  ctxEntrada = new AudioContext({ sampleRate: TASA });
+  ctxSalida = new AudioContext({ sampleRate: TASA });
+  await ctxSalida.resume();               // iOS exige gesto del usuario
+  await ctxEntrada.audioWorklet.addModule("./captura.js");
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const host = API.replace(/^https?:\/\//, "");
+  const socket = new WebSocket(`${proto}//${host}/api/ws?session_id=${session_id}`);
+  socket.binaryType = "arraybuffer";
+  ws = socket;
+
+  socket.onopen = () => {
+    if (!vigente()) { socket.close(); return; }
+    conectado = true;
+    canal?.postMessage({ tipo: "conectada", id: idPestana });
+    // Sin esto el servidor no saluda y silencia la voz del usuario para
+    // siempre: ver mensajeClienteListo() en protocolo.js.
+    socket.send(mensajeClienteListo());
+    log("client-ready enviado");
+    turno("El robot te saluda…");
+    $("texto-boton").textContent = "Colgar";
+    $("conectar").classList.add("activo");
+    $("pausa").hidden = false;
+    log("conectado");
+    mantenerPantalla(true);
+    // El boton "atras" de Android cuelga en vez de salir de la pagina.
+    history.pushState({ enLlamada: true }, "");
+    const origen = ctxEntrada.createMediaStreamSource(flujo);
+    const nodo = new AudioWorkletNode(ctxEntrada, "captura-micro");
+    nodo.port.onmessage = (ev) => {
+      if (pausado) return;   // en pausa no se envia el micro
+      const f32 = ev.data;
+      let pico = 0;
+      const i16 = new Int16Array(f32.length);
+      for (let i = 0; i < f32.length; i++) {
+        const v = Math.max(-1, Math.min(1, f32[i]));
+        i16[i] = v * 32767;
+        if (Math.abs(v) > pico) pico = Math.abs(v);
+      }
+      $("nivel").style.width = Math.min(100, pico * 180) + "%";
+      if (vigente() && socket.readyState === 1) socket.send(codificarAudio(i16));
+    };
+    origen.connect(nodo);
+    nodo.connect(ctxEntrada.destination);
+  };
+  socket.onmessage = (ev) => {
+    if (!vigente()) return;
+    // Cualquier fallo al procesar un frame se registra en vez de perderse en
+    // silencio: asi se detecto tarde el problema del audio en posicion impar.
+    try {
+      const f = decodificar(ev.data);
+      if (f.tipo === "audio") { if (!pausado) reproducir(f.audio); }
+      else if (f.tipo === "interrupcion") { cortarAudio(); burbujaBot = null; }
+      else if (f.tipo === "mensaje") {
+        try { manejarEvento(JSON.parse(f.datos)); } catch (e) { log("mensaje ilegible"); }
+      }
+    } catch (e) {
+      log("error procesando frame: " + e.message);
+    }
+  };
+  socket.onerror = () => { if (vigente()) log("error de websocket"); };
+  socket.onclose = (e) => {
+    if (!vigente()) return;
+    const eraPausa = pausado;
+    log(`cerrado ${e.code}`);
+    desconectar();
+    if (eraPausa) {
+      aviso("La sesión se cerró durante la pausa: se superó el tiempo máximo " +
+            "de inactividad del servidor (60 min). Conecta de nuevo.");
+    }
+  };
+}
+
+function desconectar() {
+  generacion++;
+  conectado = false;
+  pausado = false;
+  clearInterval(relojPausa); relojPausa = null;
+  $("pausa").hidden = true;
+  actualizarBotonPausa();
+  try { ws?.close(); } catch {}
+  ws = null;
+  flujo?.getTracks().forEach((t) => t.stop());
+  ctxEntrada?.close(); ctxSalida?.close();
+  ctxEntrada = ctxSalida = flujo = null;
+  cortarAudio();
+  mantenerPantalla(false);
+  burbujaUsuario = burbujaBot = null; hayTextoTts = false;
+  turno("Sin conectar");
+  $("texto-boton").textContent = "Conectar y hablar";
+  $("conectar").classList.remove("activo");
+  $("nivel").style.width = "0";
+}
+
+let conectando = false;
+$("conectar").onclick = async () => {
+  if (conectando) return;               // ignora toques mientras conecta
+  if (conectado) return desconectar();
+  conectando = true;
+  $("conectar").disabled = true;
+  try { await conectar(); }
+  catch (e) {
+    let msg = e.message;
+    if (e.name === "NotAllowedError" || /micr|permission|denied/i.test(msg)) {
+      msg += " — " + window.pistaCertificado;
+    }
+    aviso(msg); turno("Error"); log("fallo: " + msg); desconectar();
+  }
+  finally { conectando = false; $("conectar").disabled = false; }
+};
+// Gesto o boton "atras" de Android durante una llamada: NO cuelga. Con la
+// navegacion por gestos basta rozar el borde para dispararlo sin querer, asi
+// que se retiene y se avisa. Para colgar esta el boton Colgar.
+addEventListener("popstate", () => {
+  if (conectado) {
+    history.pushState({ enLlamada: true }, "");
+    aviso("Estás en una conversación. Para terminar, pulsa Colgar.");
+    setTimeout(() => aviso(""), 3000);
+    log("gesto atrás ignorado durante la llamada");
+  }
+});
+
+// Recarga o cierre durante una llamada: Chrome pide confirmacion.
+addEventListener("beforeunload", (e) => {
+  if (conectado) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// La conversacion NO se guarda entre recargas: al recargar se empieza siempre
+// limpio. Una version anterior la guardaba en sessionStorage para sobrevivir a
+// recargas accidentales, pero confundia (parecia que las sesiones quedaban
+// grabadas). Se borran los restos que pudiera haber dejado.
+try {
+  ["robot-conversacion", "robot-conversacion-v2", "robot-en-llamada"]
+    .forEach((k) => sessionStorage.removeItem(k));
+} catch {}
+
+const HTML_VACIO = '<div class="vacio" id="vacio"><b>Pulsa para hablar</b>' +
+  'Habla en español y el robot te responderá con su voz.</div>';
+
+// Limpiar = empezar de cero de verdad. Si hay llamada, se cuelga: el robot
+// recuerda lo hablado mientras dure la sesion en el servidor, asi que borrar
+// solo la pantalla dejaria al robot con memoria de lo que ya no se ve.
+$("limpiar").onclick = () => {
+  if (conectado || ws) desconectar();
+  $("dialogo").innerHTML = HTML_VACIO;
+  burbujaUsuario = burbujaBot = null;
+  segundosAudio = 0;
+  $("v-audio").textContent = "0 s";
+  $("v-sesion").textContent = "—";
+  aviso("");
+  log("conversación limpiada");
+};
+
+// Una sola pestaña hablando a la vez. Dos pestañas conectadas reproducen dos
+// voces mezcladas; si otra pestaña conecta, esta cuelga y avisa.
+const canal = "BroadcastChannel" in window ? new BroadcastChannel("robot-voz") : null;
+const idPestana = Math.random().toString(36).slice(2);
+canal?.addEventListener("message", (ev) => {
+  if (ev.data?.tipo === "conectada" && ev.data.id !== idPestana && (conectado || ws)) {
+    desconectar();
+    aviso("Colgado aquí porque otra pestaña inició una conversación.");
+    log("colgado: otra pestaña conectó");
+  }
+});
+
+$("pausa").onclick = () => (pausado ? reanudar() : pausar());
+
+$("abrir-detalles").onclick = () => { $("detalles").hidden = false; revisarServicios(); };
+$("cerrar-detalles").onclick = () => { $("detalles").hidden = true; };
+
+if (location.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+  aviso("Sin https Chrome bloqueará el micrófono. Abre " +
+        "https://" + location.hostname + ":7860/movil/index.html");
+}
+
+// Chrome puede negar el microfono en un origen con el certificado en aviso,
+// aunque hayas pulsado "Continuar". El sintoma es un NotAllowedError pese a
+// haber dado permiso. Se detecta al fallar y se explica la salida.
+window.pistaCertificado =
+  "Si Chrome sigue negando el micrófono pese a aceptar el certificado, " +
+  "abre chrome://flags/#unsafely-treat-insecure-origin-as-secure, añade " +
+  "http://" + location.hostname + ":8080 y reinicia Chrome. Luego usa esa " +
+  "dirección por http, sin certificado.";
+
+revisarServicios();
+setInterval(() => { if (!conectado) revisarServicios(); }, 30000);
+log(`API en ${API}`);
+</script>
+</body>
+</html>
