@@ -36,7 +36,6 @@ from examples.multilingual.g1_unitree import obtener_g1
 SKILLS: dict[str, str] = {
     # Fisicos
     "recepcion": "skill_recepcion",
-    "inspeccion": "skill_inspeccion",
     "mantenimiento": "skill_mantenimiento",
     # Conversacion, sentado
     "ia": "skill_charla_ia",
@@ -106,7 +105,7 @@ def _es_afirmativa(texto: str) -> bool:
 
 def _pregunta_por_levantarse_o_moverse(texto: str) -> bool:
     t = _limpio(texto)
-    return bool(re.search(r"(levant|de pie|mover|desplaz|avanz|andar|caminar|modo inspeccion)", t)) and "?" in texto
+    return bool(re.search(r"(levant|de pie|mover|desplaz|avanz|andar|caminar)", t)) and "?" in texto
 
 
 def _normalizar(nombre: str) -> str:
@@ -291,18 +290,6 @@ def construir_manejadores(estado: EstadoSkill) -> dict[str, Callable]:
         estado.levantarse_armado_usuarios, _ = _usuarios_en_contexto()
         logger.warning(f"[G1] levantarse ARMADO ({que}); falta confirmacion del usuario")
 
-    def _estado_confirmacion() -> str:
-        """'sin_armar', 'esperando', 'confirmada' o 'rechazada'."""
-        if _confirmado_en_este_turno():
-            return "confirmada"
-        armado = estado.levantarse_armado_en
-        if armado is None or time.monotonic() - armado > LEVANTARSE_MAX_S:
-            return "sin_armar"
-        n, ultimo = _usuarios_en_contexto()
-        if n is None or estado.levantarse_armado_usuarios is None or n <= estado.levantarse_armado_usuarios:
-            return "esperando"
-        return "rechazada" if _es_negativa(ultimo) else "confirmada"
-
     async def _confirmar_levantarse(params: FunctionCallParams, clave: str | None, que: str) -> bool:
         """Levantarse desde sentado exige confirmacion del usuario, en codigo.
 
@@ -443,26 +430,6 @@ def construir_manejadores(estado: EstadoSkill) -> dict[str, Callable]:
             f"reescrito: {reescrito})"
         )
         acciones = await _ejecutar_al_entrar(clave)
-        aviso_postura = None
-        if estado.postura_actual == "sentado" and "mover" in (estado.entrada(clave).get("tools_available") or []):
-            _armar_levantarse(f"moverme en modo {destino}")
-            conf = _estado_confirmacion()
-            if conf == "confirmada":
-                # El usuario ya dijo que si: no volver a preguntar. Se le indica al
-                # modelo que se levante; no se levanta desde el codigo (el usuario
-                # pidio no forzar la postura).
-                aviso_postura = (
-                    "El usuario YA ha confirmado que te levantes. No vuelvas a preguntar: llama "
-                    "ahora a postura con accion levantarse y despues haz lo que pidio."
-                )
-            elif conf == "rechazada":
-                aviso_postura = "El usuario ha dicho que no te levantes. Sigues sentado: no te muevas."
-            else:
-                aviso_postura = (
-                    "Estas sentado: para moverte tendras que levantarte. Si el usuario quiere que "
-                    "te muevas, preguntale si confirma que te levantes; cuando responda que si, "
-                    "llama a postura con accion levantarse."
-                )
         # El modelo no debe afirmar un cambio de postura que no ocurrio (dijo "me
         # he sentado" al pasar de un tema a otro ya estando sentado).
         hechas = {a.get("postura") for a in acciones if a.get("postura") and a.get("ok") and not a.get("omitida")}
@@ -482,7 +449,6 @@ def construir_manejadores(estado: EstadoSkill) -> dict[str, Callable]:
                 "acciones_al_entrar": acciones,
                 "postura": estado.postura_actual or "desconocida",
                 "instruccion": instruccion,
-                **({"aviso_postura": aviso_postura} if aviso_postura else {}),
             }
         )
 
@@ -496,68 +462,6 @@ def construir_manejadores(estado: EstadoSkill) -> dict[str, Callable]:
         )
 
     # --- acciones físicas sobre el Unitree G1 -----------------------------
-
-    async def mover(params: FunctionCallParams):
-        if estado.postura_actual == "sentado":
-            _armar_levantarse(f"{params.function_name}")
-            await params.result_callback(
-                {
-                    "ok": False,
-                    "motivo": "Estoy sentado y no puedo moverme asi.",
-                    "instruccion": "Pregunta al usuario si confirma que te levantes. Cuando responda "
-                    "que si, llama a postura con accion levantarse.",
-                }
-            )
-            return
-        a = params.arguments or {}
-        direccion = str(a.get("direccion", "")).lower()
-        try:
-            metros = float(a.get("metros", 0))
-        except (TypeError, ValueError):
-            await params.result_callback({"ok": False, "error": "metros debe ser un numero"})
-            return
-        if not 0.1 <= metros <= 10:
-            await params.result_callback({"ok": False, "error": "La distancia debe estar entre 0.1 y 10 metros"})
-            return
-        g1 = obtener_g1()
-        # vx adelante/atras, vy lateral (positivo a la izquierda en el SDK)
-        ejes = {
-            "adelante": (g1.vel_lineal, 0.0),
-            "atras": (-g1.vel_lineal, 0.0),
-            "izquierda": (0.0, g1.vel_lineal),
-            "derecha": (0.0, -g1.vel_lineal),
-        }
-        if direccion not in ejes:
-            await params.result_callback({"ok": False, "error": f"Direccion desconocida: {direccion}"})
-            return
-        vx, vy = ejes[direccion]
-        r = g1.mover(vx, vy, metros)
-        logger.info(f"[G1] mover {direccion} {metros} m -> {r}")
-        await params.result_callback({"ok": True, "direccion": direccion, "metros": metros, **r})
-
-    async def girar(params: FunctionCallParams):
-        if estado.postura_actual == "sentado":
-            _armar_levantarse(f"{params.function_name}")
-            await params.result_callback(
-                {
-                    "ok": False,
-                    "motivo": "Estoy sentado y no puedo moverme asi.",
-                    "instruccion": "Pregunta al usuario si confirma que te levantes. Cuando responda "
-                    "que si, llama a postura con accion levantarse.",
-                }
-            )
-            return
-        try:
-            grados = float((params.arguments or {}).get("grados", 0))
-        except (TypeError, ValueError):
-            await params.result_callback({"ok": False, "error": "grados debe ser un numero"})
-            return
-        if abs(grados) > 360:
-            await params.result_callback({"ok": False, "error": "El giro no puede superar 360 grados"})
-            return
-        r = obtener_g1().girar(grados)
-        logger.info(f"[G1] girar {grados} grados -> {r}")
-        await params.result_callback({"ok": True, "grados": grados, **r})
 
     async def detener(params: FunctionCallParams):
         r = obtener_g1().detener()
@@ -642,25 +546,12 @@ def construir_manejadores(estado: EstadoSkill) -> dict[str, Callable]:
             return
         await params.result_callback({"ok": True, "sensor": sensor, **simulados[sensor], "simulado": True})
 
-    async def reportar_incidencia(params: FunctionCallParams):
-        a = params.arguments or {}
-        desc = str(a.get("descripcion", "")).strip()
-        grav = str(a.get("gravedad", "")).lower()
-        if not desc:
-            await params.result_callback({"ok": False, "error": "Falta la descripcion"})
-            return
-        logger.warning(f"[INCIDENCIA:{grav}] {desc}")
-        await params.result_callback({"ok": True, "registrada": True, "gravedad": grav})
-
     return {
         "cambiar_skill": cambiar_skill,
         "listar_skills": listar_skills,
-        "mover": con_permiso(mover),
-        "girar": con_permiso(girar),
         "detener": con_permiso(detener),
         "parada_emergencia": con_permiso(parada_emergencia),
         "postura": con_permiso(postura),
         "gesto": con_permiso(gesto),
         "leer_sensor": con_permiso(leer_sensor),
-        "reportar_incidencia": con_permiso(reportar_incidencia),
     }

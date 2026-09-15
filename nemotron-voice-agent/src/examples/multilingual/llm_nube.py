@@ -54,10 +54,7 @@ _ETIQUETA_COMPLETA = re.compile(rf"<\s*/?\s*(?:{_NOMBRES})\s*>", re.I)
 _ETIQUETA_SIN_APERTURA = re.compile(rf"(?<![\w<])/?(?:{_NOMBRES})>", re.I)
 # Narracion interna que el modelo mete entre parentesis y no es para decirla:
 # "(Procedo a llamar a la herramienta mover)", "(He usado `cambiar_skill` para...)".
-_HERRAMIENTAS = (
-    "cambiar_skill|listar_skills|mover|girar|detener|parada_emergencia|postura|gesto|"
-    "leer_sensor|reportar_incidencia"
-)
+_HERRAMIENTAS = "cambiar_skill|listar_skills|detener|parada_emergencia|postura|gesto|leer_sensor"
 _NARRACION_HERRAMIENTA = re.compile(
     rf"\([^()]*(?:\bherramienta\b|`[^`]*`|\b(?:{_HERRAMIENTAS})\b)[^()]*\)\.?", re.I
 )

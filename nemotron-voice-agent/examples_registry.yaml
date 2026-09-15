@@ -46,10 +46,32 @@ examples:
       # skill_recepcion es el modo inicial; el robot cambia por voz con la
       # herramienta cambiar_skill. Los otros skills viven en prompts.yaml.
       prompt: [skill_recepcion]
-      llm: [qwen35-4b]
-      asr: [nemotron-asr-streaming-multilingual]
+      # NOTA (Windows, sin Docker/GPU local): qwen35-4b y
+      # nemotron-asr-streaming-multilingual son ids del catalogo LOCAL
+      # (services.local.yaml, solo DGX Spark) y no existen en
+      # services.cloud.yaml. Un run host-native (uv run python src/server.py)
+      # usa PLATFORM=cloud por defecto, asi que aqui van los ids de nube
+      # (los mismos que examples_registry.nube.yaml). Si mas adelante vuelves
+      # a desplegar el perfil Docker multilingual-assistant/dgx-spark en esa
+      # maquina, revierte estas dos lineas a qwen35-4b /
+      # nemotron-asr-streaming-multilingual.
+      llm: [nemotron-super]
+      asr: [parakeet-rnnt]
       tts: [magpie-multilingual-tts]
     bot: examples.multilingual.pipeline:bot
+
+  multilingual-assistant-azure:
+    label: Multilingual Assistant (Azure)
+    # Sin slots/catalogo: examples/multilingual_azure/pipeline.py configura
+    # ASR/LLM/TTS de Azure directo desde variables de entorno (ver README,
+    # seccion 14), no desde services.cloud.yaml. Reutiliza los skills y
+    # prompts de multilingual-assistant (mismo prompts.yaml/tools.yaml), asi
+    # que el selector de prompts de la UI del blueprint sale vacio para este
+    # ejemplo; usa pipeline_mode + prompt_key directo (como robot_voz.py).
+    slots: []
+    defaults:
+      prompt: [skill_recepcion]
+    bot: examples.multilingual_azure.pipeline:bot
 
   omni-assistant:
     label: Nemotron Omni Assistant
