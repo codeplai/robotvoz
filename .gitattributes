@@ -1,0 +1,5 @@
+# Los .sh corren en Linux: fuerza LF pase lo que pase con el autocrlf de
+# quien clone (un \r suelto en el shebang rompe el script con "bad interpreter").
+*.sh text eol=lf
+# Los .ps1 corren en Windows: CRLF nativo.
+*.ps1 text eol=crlf
