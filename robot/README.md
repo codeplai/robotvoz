@@ -111,3 +111,9 @@ Edita `multilingual_voice_assistant` y reinicia con `04-parar.sh` y `02-arrancar
 
 Las voces disponibles se descubren en caliente. Consulta `GET /api/tts-config`
 y fija `tts_voice_id` en el cuerpo de `/api/session-config`.
+
+cd nemotron-voice-agent
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd client && npm install && npm run build && cd ..
+# editar .env con las claves
